@@ -4,27 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Resume Screening System</title>
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
     <script src="https://cdnjs.cloudflare.net/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.net/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 30px; background-color: #f8f9fa; color: #333; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 30px; background-color: #f8f9fa; color: #333; }
         .container { max-width: 900px; margin: 0 auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         h1 { color: #2c3e50; text-align: center; }
         textarea, input[type="file"] { width: 100%; margin-bottom: 15px; padding: 10px; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; }
-        button { background-color: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }
+        button { background-color: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; font-weight: bold; }
+        button:hover { background-color: #0056b3; }
         button:disabled { background-color: #6c757d; cursor: not-allowed; }
         #status { margin-top: 15px; font-weight: bold; text-align: center; color: #007bff; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
         th { background-color: #007bff; color: white; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>AI Resume Screening System</h1>
-    <p>Upload candidate resumes and paste the job description to calculate match scores completely in-browser.</p>
+    <p>Upload candidate resumes and paste the job description to calculate TF-IDF match scores instantly.</p>
 
     <label><b>Job Description (JD):</b></label>
     <textarea id="jd" rows="6" placeholder="Paste Job Description here..."></textarea>
@@ -32,32 +33,37 @@
     <label><b>Upload Resumes (.pdf, .docx, .txt):</b></label>
     <input type="file" id="resumes" multiple accept=".pdf,.docx,.txt">
 
-    <button id="runBtn" onclick="processScreening()" disabled>Loading Python Engine...</button>
-    <div id="status">Initializing Python environment...</div>
+    <button id="runBtn" onclick="processScreening()">Run Resume Screening</button>
+    <div id="status">Engine Ready</div>
 
     <div id="results"></div>
 </div>
 
 <script>
-// Configure pdf.js worker globally
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.net/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
-let pyodide;
+// English Stop Words List for text cleaning
+const STOP_WORDS = new Set([
+    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "aren't", "as", "at", 
+    "be", "because", "been", "before", "being", "below", "between", "both", "but", "by", "can", "can't", "cannot", 
+    "could", "did", "do", "does", "doing", "don't", "down", "during", "each", "few", "for", "from", "further", "had", 
+    "has", "have", "having", "he", "her", "here", "hers", "herself", "him", "himself", "his", "how", "i", "if", "in", 
+    "into", "is", "it", "its", "itself", "just", "me", "more", "most", "my", "myself", "no", "nor", "not", "of", "off", 
+    "on", "once", "only", "or", "other", "our", "ours", "ourselves", "out", "over", "own", "same", "she", "should", 
+    "so", "some", "such", "than", "that", "the", "their", "theirs", "them", "themselves", "then", "there", "these", 
+    "they", "this", "those", "through", "to", "too", "under", "until", "up", "very", "was", "we", "were", "what", 
+    "when", "where", "which", "while", "who", "whom", "why", "with", "would", "you", "your", "yours", "yourself"
+]);
 
-async function initPyodide() {
-    try {
-        pyodide = await loadPyodide();
-        document.getElementById("status").innerText = "Loading Machine Learning libraries...";
-        await pyodide.loadPackage(["scikit-learn"]);
-        document.getElementById("status").innerText = "Python ML Engine Ready!";
-        document.getElementById("runBtn").disabled = false;
-        document.getElementById("runBtn").innerText = "Run Resume Screening";
-    } catch (err) {
-        document.getElementById("status").innerText = "Failed to load Python: " + err.message;
-    }
+// Text Cleaning & Tokenization
+function tokenize(text) {
+    return text.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(word => word.length > 1 && !STOP_WORDS.has(word));
 }
-initPyodide();
 
+// File Text Extractors
 async function extractText(file) {
     const fileName = file.name.toLowerCase();
     
@@ -88,6 +94,61 @@ async function extractText(file) {
     return "";
 }
 
+// Core TF-IDF & Cosine Similarity Algorithm
+function computeTfidfScores(jdText, resumeTexts) {
+    const corpus = [tokenize(jdText), ...resumeTexts.map(tokenize)];
+    const numDocs = corpus.length;
+    
+    // Build Vocabulary
+    const vocab = new Set();
+    corpus.forEach(doc => doc.forEach(word => vocab.add(word)));
+    const vocabList = Array.from(vocab);
+
+    // Compute Term Frequency (TF)
+    const tfMatrices = corpus.map(doc => {
+        const tf = {};
+        const docLength = doc.length || 1;
+        doc.forEach(word => {
+            tf[word] = (tf[word] || 0) + 1;
+        });
+        Object.keys(tf).forEach(word => {
+            tf[word] = tf[word] / docLength;
+        });
+        return tf;
+    });
+
+    // Compute Inverse Document Frequency (IDF)
+    const idf = {};
+    vocabList.forEach(word => {
+        const docCount = corpus.filter(doc => doc.includes(word)).length;
+        idf[word] = Math.log((1 + numDocs) / (1 + docCount)) + 1;
+    });
+
+    // Compute TF-IDF Vectors
+    const vectors = tfMatrices.map(tf => {
+        return vocabList.map(word => (tf[word] || 0) * idf[word]);
+    });
+
+    const jdVector = vectors[0];
+    const resumeVectors = vectors.slice(1);
+
+    // Cosine Similarity Function
+    function cosineSimilarity(vecA, vecB) {
+        let dotProduct = 0;
+        let normA = 0;
+        let normB = 0;
+        for (let i = 0; i < vecA.length; i++) {
+            dotProduct += vecA[i] * vecB[i];
+            normA += vecA[i] * vecA[i];
+            normB += vecB[i] * vecB[i];
+        }
+        if (normA === 0 || normB === 0) return 0;
+        return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+
+    return resumeVectors.map(vec => cosineSimilarity(jdVector, vec));
+}
+
 async function processScreening() {
     const jdText = document.getElementById("jd").value.trim();
     const files = document.getElementById("resumes").files;
@@ -99,58 +160,30 @@ async function processScreening() {
     const runBtn = document.getElementById("runBtn");
 
     runBtn.disabled = true;
-    statusEl.innerText = "Extracting text from files...";
+    statusEl.innerText = "Extracting text from resumes...";
 
     try {
         let filenames = [];
         let resumeTexts = [];
 
         for (let file of files) {
-            statusEl.innerText = `Parsing ${file.name}...`;
+            statusEl.innerText = `Processing ${file.name}...`;
             const text = await extractText(file);
             filenames.push(file.name);
-            resumeTexts.push(text || file.name); // Fallback to filename if empty text
+            resumeTexts.push(text);
         }
 
-        statusEl.innerText = "Computing TF-IDF vector similarity...";
+        statusEl.innerText = "Calculating similarity scores...";
+        const scores = computeTfidfScores(jdText, resumeTexts);
 
-        pyodide.globals.set("jd_text", jdText);
-        pyodide.globals.set("resume_texts", resumeTexts);
-        pyodide.globals.set("filenames", filenames);
+        let results = filenames.map((name, i) => ({
+            name: name,
+            score: (scores[i] * 100).toFixed(2)
+        }));
 
-        const pythonCode = `
-import re
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+        results.sort((a, b) => b.score - a.score);
 
-def clean_text(text):
-    text = re.sub(r'[^a-zA-Z0-9\\s]', ' ', str(text))
-    return text.lower().strip()
-
-cleaned_jd = clean_text(jd_text)
-cleaned_resumes = [clean_text(r) for r in resume_texts]
-
-corpus = [cleaned_jd] + cleaned_resumes
-vectorizer = TfidfVectorizer(stop_words='english')
-tfidf_matrix = vectorizer.fit_transform(corpus)
-
-jd_vector = tfidf_matrix[0]
-resume_vectors = tfidf_matrix[1:]
-
-scores = cosine_similarity(jd_vector, resume_vectors)[0]
-
-results = []
-for name, score in zip(filenames, scores):
-    results.append([str(name), round(float(score) * 100, 2)])
-
-results.sort(key=lambda x: x[1], reverse=True)
-results
-`;
-
-        const results = await pyodide.runPythonAsync(pythonCode);
-        const parsedResults = results.toJs();
-
-        displayResults(parsedResults);
+        displayResults(results);
         statusEl.innerText = "Screening Completed!";
     } catch (err) {
         statusEl.innerText = "Error: " + err.message;
@@ -163,7 +196,7 @@ results
 function displayResults(data) {
     let html = "<h2>Candidate Rankings</h2><table><tr><th>Rank</th><th>Candidate File</th><th>Match Score (%)</th></tr>";
     data.forEach((item, index) => {
-        html += `<tr><td>${index + 1}</td><td>${item[0]}</td><td><b>${item[1]}%</b></td></tr>`;
+        html += `<tr><td>${index + 1}</td><td>${item.name}</td><td><b>${item.score}%</b></td></tr>`;
     });
     html += "</table>";
     document.getElementById("results").innerHTML = html;
