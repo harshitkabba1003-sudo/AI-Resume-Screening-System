@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Resume Screening System</title>
-    <!-- Standalone PDF & DOCX Libraries -->
+    <!-- pdf.js legacy bundle without worker dependency -->
     <script src="https://cdnjs.cloudflare.net/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.net/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
     <style>
@@ -41,9 +41,9 @@
 </div>
 
 <script>
-// Configure PDF worker cleanly
-if (typeof pdfjsLib !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.net/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+// Disable external worker requirement to prevent CORS/block issues
+if (window.pdfjsLib) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = '';
 }
 
 const STOP_WORDS = new Set([
@@ -78,33 +78,34 @@ async function extractText(file) {
             const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
             return result.value || "";
         } catch (e) {
-            console.warn("Docx parsing failed, using filename.", e);
             return file.name;
         }
     } 
     
     if (fileName.endsWith('.pdf')) {
         try {
-            if (typeof pdfjsLib !== 'undefined') {
-                const arrayBuffer = await file.arrayBuffer();
-                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                let fullText = "";
-                
-                for (let i = 1; i <= pdf.numPages; i++) {
-                    const page = await pdf.getPage(i);
-                    const textContent = await page.getTextContent();
-                    const pageText = textContent.items.map(item => item.str).join(" ");
-                    fullText += pageText + " ";
-                }
-                if (fullText.trim().length > 0) return fullText;
+            const arrayBuffer = await file.arrayBuffer();
+            const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer, disableFontFace: true });
+            const pdf = await loadingTask.promise;
+            let extractedWords = [];
+            
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                textContent.items.forEach(item => {
+                    if (item.str && item.str.trim().length > 0) {
+                        extractedWords.push(item.str);
+                    }
+                });
+            }
+            
+            const fullText = extractedWords.join(" ");
+            if (fullText.trim().length > 10) {
+                return fullText;
             }
         } catch (e) {
-            console.warn("PDF JS Extraction failed, falling back to name/binary extraction", e);
+            console.error("PDF Parsing Error:", e);
         }
-        
-        // Fallback decoder if PDF text stream blocked
-        const text = await file.text();
-        return text.replace(/[^\x20-\x7E\n]/g, " ") || file.name;
     }
     
     return file.name;
@@ -170,14 +171,14 @@ async function processScreening() {
     const runBtn = document.getElementById("runBtn");
 
     runBtn.disabled = true;
-    statusEl.innerText = "Processing resumes...";
+    statusEl.innerText = "Extracting text from resumes...";
 
     try {
         let filenames = [];
         let resumeTexts = [];
 
         for (let file of files) {
-            statusEl.innerText = `Analyzing ${file.name}...`;
+            statusEl.innerText = `Parsing ${file.name}...`;
             const text = await extractText(file);
             filenames.push(file.name);
             resumeTexts.push(text);
