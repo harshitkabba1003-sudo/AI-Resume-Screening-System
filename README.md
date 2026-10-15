@@ -1,6 +1,6 @@
 # AI Resume Screening & Ranking System
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ai-resume-screening-system.streamlit.app/)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ai-resume-screening-system-92fdbn4ifmmnsxxhkpfjhh.streamlit.app/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 An automated, lightweight decision-support tool built for recruiters to analyze candidate resumes and rank applicants based on their relevance to a given Job Description (JD).
