@@ -11,7 +11,7 @@ Developed for **Edufyi Tech Solutions** Internship Project.
 
 ## 🚀 Live Demo
 
-👉 **Try the Live Web App:** [https://ai-resume-screening-system.streamlit.app/](https://ai-resume-screening-system-92fdbn4ifmmnsxxhkpfjhh.streamlit.app/)
+👉 **Try the Live Web App:** https://ai-resume-screening-system-92fdbn4ifmmnsxxhkpfjhh.streamlit.app/
 
 *(Note: Replace the link above with your exact Streamlit app URL)*
 
