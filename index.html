@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Resume Screening System</title>
-    <script src="https://cdnjs.cloudflare.net/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <!-- PDF.js & Mammoth CDN -->
+    <script src="https://cdnjs.cloudflare.net/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.net/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 30px; background-color: #f8f9fa; color: #333; }
@@ -34,14 +35,12 @@
     <input type="file" id="resumes" multiple accept=".pdf,.docx,.txt">
 
     <button id="runBtn" onclick="processScreening()">Run Resume Screening</button>
-    <div id="status">Engine Ready</div>
+    <div id="status">System Ready</div>
 
     <div id="results"></div>
 </div>
 
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.net/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-
 // English Stop Words List for text cleaning
 const STOP_WORDS = new Set([
     "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "aren't", "as", "at", 
@@ -55,7 +54,6 @@ const STOP_WORDS = new Set([
     "when", "where", "which", "while", "who", "whom", "why", "with", "would", "you", "your", "yours", "yourself"
 ]);
 
-// Text Cleaning & Tokenization
 function tokenize(text) {
     return text.toLowerCase()
         .replace(/[^a-z0-9\s]/g, ' ')
@@ -63,7 +61,6 @@ function tokenize(text) {
         .filter(word => word.length > 1 && !STOP_WORDS.has(word));
 }
 
-// File Text Extractors
 async function extractText(file) {
     const fileName = file.name.toLowerCase();
     
@@ -78,8 +75,15 @@ async function extractText(file) {
     } 
     
     if (fileName.endsWith('.pdf')) {
+        const pdfjs = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+        if (!pdfjs) {
+            throw new Error("PDF parser library failed to load. Check your internet connection.");
+        }
+        pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.net/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
         const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
         let fullText = "";
         
         for (let i = 1; i <= pdf.numPages; i++) {
@@ -94,17 +98,14 @@ async function extractText(file) {
     return "";
 }
 
-// Core TF-IDF & Cosine Similarity Algorithm
 function computeTfidfScores(jdText, resumeTexts) {
     const corpus = [tokenize(jdText), ...resumeTexts.map(tokenize)];
     const numDocs = corpus.length;
     
-    // Build Vocabulary
     const vocab = new Set();
     corpus.forEach(doc => doc.forEach(word => vocab.add(word)));
     const vocabList = Array.from(vocab);
 
-    // Compute Term Frequency (TF)
     const tfMatrices = corpus.map(doc => {
         const tf = {};
         const docLength = doc.length || 1;
@@ -117,14 +118,12 @@ function computeTfidfScores(jdText, resumeTexts) {
         return tf;
     });
 
-    // Compute Inverse Document Frequency (IDF)
     const idf = {};
     vocabList.forEach(word => {
         const docCount = corpus.filter(doc => doc.includes(word)).length;
         idf[word] = Math.log((1 + numDocs) / (1 + docCount)) + 1;
     });
 
-    // Compute TF-IDF Vectors
     const vectors = tfMatrices.map(tf => {
         return vocabList.map(word => (tf[word] || 0) * idf[word]);
     });
@@ -132,7 +131,6 @@ function computeTfidfScores(jdText, resumeTexts) {
     const jdVector = vectors[0];
     const resumeVectors = vectors.slice(1);
 
-    // Cosine Similarity Function
     function cosineSimilarity(vecA, vecB) {
         let dotProduct = 0;
         let normA = 0;
@@ -173,7 +171,7 @@ async function processScreening() {
             resumeTexts.push(text);
         }
 
-        statusEl.innerText = "Calculating similarity scores...";
+        statusEl.innerText = "Calculating match scores...";
         const scores = computeTfidfScores(jdText, resumeTexts);
 
         let results = filenames.map((name, i) => ({
